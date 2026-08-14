@@ -1,0 +1,347 @@
+#include "filesystem.h"
+
+#include <dirent.h>
+#include <errno.h>
+#include <sys/mount.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <cctype>
+#include <cstring>
+#include <iomanip>
+#include <set>
+#include <sstream>
+
+namespace tsw {
+namespace {
+
+bool StartsWith(const std::string& value, const std::string& prefix) {
+    return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
+}
+
+std::string TrimTrailingSlashes(const std::string& path) {
+    if (path.empty()) {
+        return path;
+    }
+
+    std::string trimmed = path;
+    while (trimmed.size() > 1 && trimmed[trimmed.size() - 1] == '/') {
+        trimmed.erase(trimmed.size() - 1);
+    }
+    return trimmed;
+}
+
+std::string JoinPath(const std::string& left, const std::string& right) {
+    if (left.empty() || left == "/") {
+        return "/" + right;
+    }
+    return TrimTrailingSlashes(left) + "/" + right;
+}
+
+std::string LowercaseAscii(const std::string& value) {
+    std::string lower = value;
+    for (std::size_t index = 0; index < lower.size(); ++index) {
+        lower[index] = static_cast<char>(std::tolower(static_cast<unsigned char>(lower[index])));
+    }
+    return lower;
+}
+
+bool IsHiddenSystemVolume(const std::string& mount_path) {
+    static const char* const kHiddenPrefixes[] = {
+        "/Volumes/com.apple.TimeMachine.localsnapshots",
+        "/System/Volumes/Preboot",
+        "/System/Volumes/Update"
+    };
+
+    for (std::size_t index = 0; index < sizeof(kHiddenPrefixes) / sizeof(kHiddenPrefixes[0]); ++index) {
+        if (StartsWith(mount_path, kHiddenPrefixes[index])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool IsUserVisibleMount(const struct statfs& entry) {
+    const std::string mount_path(entry.f_mntonname);
+    if (mount_path == "/") {
+        return true;
+    }
+
+    if (!StartsWith(mount_path, "/Volumes/")) {
+        return false;
+    }
+
+    if ((entry.f_flags & MNT_DONTBROWSE) != 0) {
+        return false;
+    }
+
+    if (IsHiddenSystemVolume(mount_path)) {
+        return false;
+    }
+
+    return true;
+}
+
+uint64_t ToAllocatedBytes(const struct stat& status) {
+    if (status.st_blocks > 0) {
+        return static_cast<uint64_t>(status.st_blocks) * 512ULL;
+    }
+    return static_cast<uint64_t>(status.st_size);
+}
+
+EntryType DetectEntryType(const struct stat& status) {
+    if (S_ISDIR(status.st_mode)) {
+        return EntryType::Directory;
+    }
+    if (S_ISREG(status.st_mode)) {
+        return EntryType::File;
+    }
+    if (S_ISLNK(status.st_mode)) {
+        return EntryType::Symlink;
+    }
+    return EntryType::Other;
+}
+
+struct ScanAccumulator {
+    uint64_t total_bytes = 0;
+    bool denied = false;
+    bool error = false;
+};
+
+void MarkTraversalFailure(ScanAccumulator* accumulator, int error_code) {
+    if (error_code == EACCES || error_code == EPERM) {
+        accumulator->denied = true;
+        return;
+    }
+    accumulator->error = true;
+}
+
+void ScanDirectoryRecursive(const std::string& path, ScanAccumulator* accumulator) {
+    DIR* directory = opendir(path.c_str());
+    if (directory == NULL) {
+        MarkTraversalFailure(accumulator, errno);
+        return;
+    }
+
+    errno = 0;
+    struct dirent* entry = readdir(directory);
+    while (entry != NULL) {
+        const std::string name(entry->d_name);
+        if (name == "." || name == "..") {
+            entry = readdir(directory);
+            continue;
+        }
+
+        const std::string full_path = JoinPath(path, name);
+        struct stat status;
+        if (lstat(full_path.c_str(), &status) != 0) {
+            MarkTraversalFailure(accumulator, errno);
+            entry = readdir(directory);
+            continue;
+        }
+
+        if (S_ISDIR(status.st_mode)) {
+            ScanDirectoryRecursive(full_path, accumulator);
+        } else {
+            accumulator->total_bytes += ToAllocatedBytes(status);
+        }
+
+        entry = readdir(directory);
+    }
+
+    if (errno != 0) {
+        MarkTraversalFailure(accumulator, errno);
+    }
+
+    closedir(directory);
+}
+
+}  // namespace
+
+std::vector<VolumeInfo> EnumerateVolumes() {
+    std::vector<VolumeInfo> volumes;
+
+    struct statfs* mount_points = NULL;
+    const int count = getmntinfo(&mount_points, MNT_NOWAIT);
+    if (count <= 0 || mount_points == NULL) {
+        return volumes;
+    }
+
+    std::set<std::string> seen_mount_paths;
+    for (int index = 0; index < count; ++index) {
+        const struct statfs& entry = mount_points[index];
+        if (!IsUserVisibleMount(entry)) {
+            continue;
+        }
+
+        const std::string mount_path(entry.f_mntonname);
+        if (!seen_mount_paths.insert(mount_path).second) {
+            continue;
+        }
+
+        VolumeInfo volume;
+        volume.mount_path = mount_path;
+        volume.fs_type = entry.f_fstypename;
+        volume.total_bytes = static_cast<uint64_t>(entry.f_blocks) * static_cast<uint64_t>(entry.f_bsize);
+        volume.free_bytes = static_cast<uint64_t>(entry.f_bavail) * static_cast<uint64_t>(entry.f_bsize);
+        volume.name = BaseName(mount_path);
+        volumes.push_back(volume);
+    }
+
+    std::sort(volumes.begin(), volumes.end(), [](const VolumeInfo& left, const VolumeInfo& right) {
+        if (left.mount_path == "/") {
+            return true;
+        }
+        if (right.mount_path == "/") {
+            return false;
+        }
+        const std::string left_name = LowercaseAscii(left.name);
+        const std::string right_name = LowercaseAscii(right.name);
+        if (left_name != right_name) {
+            return left_name < right_name;
+        }
+        return left.mount_path < right.mount_path;
+    });
+
+    return volumes;
+}
+
+DirectoryListing ListDirectory(const std::string& path) {
+    DirectoryListing listing;
+    DIR* directory = opendir(path.c_str());
+    if (directory == NULL) {
+        listing.error_message = std::strerror(errno);
+        return listing;
+    }
+
+    listing.success = true;
+    errno = 0;
+
+    struct dirent* entry = readdir(directory);
+    while (entry != NULL) {
+        const std::string name(entry->d_name);
+        if (name == "." || name == "..") {
+            entry = readdir(directory);
+            continue;
+        }
+
+        const std::string full_path = JoinPath(path, name);
+        struct stat status;
+        if (lstat(full_path.c_str(), &status) != 0) {
+            entry = readdir(directory);
+            continue;
+        }
+
+        EntryInfo info;
+        info.name = name;
+        info.full_path = full_path;
+        info.type = DetectEntryType(status);
+        info.size_bytes = (info.type == EntryType::Directory) ? 0 : ToAllocatedBytes(status);
+        info.status = (info.type == EntryType::Directory) ? ScanStatus::NotScanned : ScanStatus::Ready;
+        listing.entries.push_back(info);
+
+        entry = readdir(directory);
+    }
+
+    if (errno != 0) {
+        listing.error_message = std::strerror(errno);
+    }
+
+    closedir(directory);
+    return listing;
+}
+
+ScanSummary ComputeDirectorySize(const std::string& path) {
+    ScanAccumulator accumulator;
+    ScanDirectoryRecursive(path, &accumulator);
+
+    ScanSummary summary;
+    summary.size_bytes = accumulator.total_bytes;
+    if (accumulator.denied) {
+        summary.status = ScanStatus::Denied;
+    } else if (accumulator.error) {
+        summary.status = ScanStatus::Error;
+    } else {
+        summary.status = ScanStatus::Ready;
+    }
+    return summary;
+}
+
+std::string BaseName(const std::string& path) {
+    const std::string trimmed = TrimTrailingSlashes(path);
+    if (trimmed.empty() || trimmed == "/") {
+        return "/";
+    }
+
+    const std::string::size_type slash = trimmed.find_last_of('/');
+    if (slash == std::string::npos) {
+        return trimmed;
+    }
+    return trimmed.substr(slash + 1);
+}
+
+std::string ParentPath(const std::string& path) {
+    const std::string trimmed = TrimTrailingSlashes(path);
+    if (trimmed.empty() || trimmed == "/") {
+        return "/";
+    }
+
+    const std::string::size_type slash = trimmed.find_last_of('/');
+    if (slash == std::string::npos || slash == 0) {
+        return "/";
+    }
+    return trimmed.substr(0, slash);
+}
+
+std::string FormatBytes(uint64_t bytes) {
+    static const char* const kUnits[] = {"B", "KB", "MB", "GB", "TB", "PB"};
+    double value = static_cast<double>(bytes);
+    std::size_t unit_index = 0;
+    while (value >= 1024.0 && unit_index + 1 < sizeof(kUnits) / sizeof(kUnits[0])) {
+        value /= 1024.0;
+        ++unit_index;
+    }
+
+    std::ostringstream stream;
+    if (unit_index == 0) {
+        stream << bytes << ' ' << kUnits[unit_index];
+    } else {
+        stream << std::fixed << std::setprecision(1) << value << ' ' << kUnits[unit_index];
+    }
+    return stream.str();
+}
+
+std::string EntryTypeToString(EntryType type) {
+    switch (type) {
+    case EntryType::File:
+        return "File";
+    case EntryType::Directory:
+        return "Folder";
+    case EntryType::Symlink:
+        return "Symlink";
+    case EntryType::Other:
+    default:
+        return "Other";
+    }
+}
+
+std::string ScanStatusToString(ScanStatus status) {
+    switch (status) {
+    case ScanStatus::NotScanned:
+        return "Not Scanned";
+    case ScanStatus::Queued:
+        return "Queued";
+    case ScanStatus::Scanning:
+        return "Scanning";
+    case ScanStatus::Ready:
+        return "Ready";
+    case ScanStatus::Denied:
+        return "Denied";
+    case ScanStatus::Error:
+    default:
+        return "Error";
+    }
+}
+
+}  // namespace tsw
