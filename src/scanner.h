@@ -33,9 +33,11 @@ public:
     explicit ScanScheduler(std::size_t worker_count = 2);
     ~ScanScheduler();
 
+    void RequestStop();
     void SetActiveEpoch(uint64_t epoch);
     bool Enqueue(const std::string& path, uint64_t epoch);
     std::vector<ScanEvent> DrainEvents();
+    std::size_t WorkerCount() const;
 
 private:
     struct ScanTask {
@@ -55,7 +57,7 @@ private:
     std::condition_variable condition_;
     std::set<std::string> pending_tokens_;
     std::atomic<uint64_t> active_epoch_;
-    bool stop_ = false;
+    std::atomic<bool> stop_;
 };
 
 }  // namespace tsw

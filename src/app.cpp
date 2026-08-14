@@ -71,6 +71,14 @@ App::App()
     RefreshVolumes();
 }
 
+App::~App() {
+    BeginShutdown();
+}
+
+void App::BeginShutdown() {
+    scanner_.RequestStop();
+}
+
 void App::Pump() {
     const std::vector<ScanEvent> events = scanner_.DrainEvents();
     for (std::size_t index = 0; index < events.size(); ++index) {
@@ -106,11 +114,16 @@ void App::Render() {
     HandleShortcuts();
     Pump();
 
+    const float status_bar_height = ImGui::GetFrameHeightWithSpacing();
+    ImGui::BeginChild("MainContent", ImVec2(0.0f, -status_bar_height), false);
     if (view_mode_ == ViewMode::Volumes) {
         RenderVolumesView();
     } else {
         RenderBrowserView();
     }
+    ImGui::EndChild();
+
+    RenderStatusBar();
 
     ImGui::End();
 }
@@ -284,6 +297,41 @@ void App::RenderVolumesView() {
     }
 }
 
+void App::RenderStatusBar() {
+    const std::size_t active_workers = scanning_paths_.size();
+    const std::size_t queued_folders = queued_paths_.size();
+    const std::size_t worker_capacity = scanner_.WorkerCount();
+    const std::size_t in_progress_folders = active_workers + queued_folders;
+
+    std::size_t visible_volumes = 0;
+    std::size_t hidden_network_volumes = 0;
+    for (std::size_t index = 0; index < volumes_.size(); ++index) {
+        if (IsVolumeVisible(volumes_[index])) {
+            ++visible_volumes;
+        } else if (volumes_[index].is_network) {
+            ++hidden_network_volumes;
+        }
+    }
+
+    std::string status_text;
+    if (view_mode_ == ViewMode::Browser) {
+        status_text = "Folders in progress: " + std::to_string(in_progress_folders) +
+                      " | Waiting: " + std::to_string(queued_folders) +
+                      " | Active workers: " + std::to_string(active_workers) + "/" +
+                      std::to_string(worker_capacity);
+    } else {
+        status_text = "Visible volumes: " + std::to_string(visible_volumes) +
+                      " | Hidden network volumes: " + std::to_string(hidden_network_volumes) +
+                      " | Active workers: " + std::to_string(active_workers) + "/" +
+                      std::to_string(worker_capacity);
+    }
+
+    ImGui::Separator();
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.72f, 0.74f, 0.78f, 1.0f));
+    ImGui::TextUnformatted(status_text.c_str());
+    ImGui::PopStyleColor();
+}
+
 void App::RenderBrowserView() {
     DirectoryState* state = CurrentDirectoryState();
     if (state == NULL) {
@@ -312,7 +360,6 @@ void App::RenderBrowserView() {
 
     ImGui::Spacing();
     ImGui::Text("Path: %s", current_path_.c_str());
-    ImGui::Text("Queued: %zu  Scanning: %zu", queued_paths_.size(), scanning_paths_.size());
 
     if (!state->error_message.empty() && state->entries.empty()) {
         ImGui::Spacing();

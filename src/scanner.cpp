@@ -23,6 +23,7 @@ ScanScheduler::ScanScheduler(std::size_t worker_count) {
     }
 
     active_epoch_.store(0);
+    stop_.store(false);
     workers_.reserve(worker_count);
     for (std::size_t index = 0; index < worker_count; ++index) {
         workers_.push_back(std::thread(&ScanScheduler::WorkerLoop, this));
@@ -30,20 +31,32 @@ ScanScheduler::ScanScheduler(std::size_t worker_count) {
 }
 
 ScanScheduler::~ScanScheduler() {
-    {
-        std::lock_guard<std::mutex> lock(mutex_);
-        stop_ = true;
-    }
-    condition_.notify_all();
+    RequestStop();
 
     for (std::size_t index = 0; index < workers_.size(); ++index) {
-        workers_[index].join();
+        if (workers_[index].joinable()) {
+            workers_[index].join();
+        }
     }
+}
+
+void ScanScheduler::RequestStop() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stop_.store(true);
+        active_epoch_.fetch_add(1);
+        tasks_.clear();
+        pending_tokens_.clear();
+    }
+    condition_.notify_all();
 }
 
 void ScanScheduler::SetActiveEpoch(uint64_t epoch) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (stop_.load()) {
+            return;
+        }
         active_epoch_.store(epoch);
         tasks_.clear();
         pending_tokens_.clear();
@@ -56,6 +69,9 @@ bool ScanScheduler::Enqueue(const std::string& path, uint64_t epoch) {
 
     {
         std::lock_guard<std::mutex> lock(mutex_);
+        if (stop_.load()) {
+            return false;
+        }
         if (!pending_tokens_.insert(token).second) {
             return false;
         }
@@ -78,6 +94,10 @@ std::vector<ScanEvent> ScanScheduler::DrainEvents() {
     return drained;
 }
 
+std::size_t ScanScheduler::WorkerCount() const {
+    return workers_.size();
+}
+
 void ScanScheduler::PushEvent(const ScanEvent& event) {
     std::lock_guard<std::mutex> lock(events_mutex_);
     events_.push_back(event);
@@ -88,8 +108,8 @@ void ScanScheduler::WorkerLoop() {
         ScanTask task;
         {
             std::unique_lock<std::mutex> lock(mutex_);
-            condition_.wait(lock, [this]() { return stop_ || !tasks_.empty(); });
-            if (stop_ && tasks_.empty()) {
+            condition_.wait(lock, [this]() { return stop_.load() || !tasks_.empty(); });
+            if (stop_.load() && tasks_.empty()) {
                 return;
             }
 
@@ -97,7 +117,7 @@ void ScanScheduler::WorkerLoop() {
             tasks_.pop_front();
         }
 
-        if (task.epoch != active_epoch_.load()) {
+        if (stop_.load() || task.epoch != active_epoch_.load()) {
             std::lock_guard<std::mutex> lock(mutex_);
             pending_tokens_.erase(task.token);
             continue;
@@ -118,8 +138,11 @@ void ScanScheduler::WorkerLoop() {
         completed.epoch = task.epoch;
         completed.summary = ComputeDirectorySize(
             task.path,
-            [this, &task]() { return task.epoch != active_epoch_.load(); },
+            [this, &task]() { return stop_.load() || task.epoch != active_epoch_.load(); },
             [this, &task, &last_reported_bytes, &last_report_time](uint64_t bytes) {
+                if (stop_.load()) {
+                    return;
+                }
                 const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
                 if (bytes > last_reported_bytes &&
                     (bytes - last_reported_bytes >= kProgressByteStep || now - last_report_time >= kProgressTimeStep)) {
@@ -136,7 +159,7 @@ void ScanScheduler::WorkerLoop() {
                 }
             });
 
-        if (task.epoch != active_epoch_.load()) {
+        if (stop_.load() || task.epoch != active_epoch_.load()) {
             std::lock_guard<std::mutex> lock(mutex_);
             pending_tokens_.erase(task.token);
             continue;

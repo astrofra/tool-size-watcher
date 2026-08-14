@@ -15,9 +15,11 @@ namespace tsw {
 class App {
 public:
     App();
+    ~App();
 
     void Pump();
     void Render();
+    void BeginShutdown();
 
 private:
     void RefreshVolumes();
@@ -30,6 +32,7 @@ private:
 
     void RenderVolumesView();
     void RenderBrowserView();
+    void RenderStatusBar();
     void HandleShortcuts();
 
     void AdvanceScanEpoch();
