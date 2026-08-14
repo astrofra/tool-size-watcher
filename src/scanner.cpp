@@ -1,5 +1,6 @@
 #include "scanner.h"
 
+#include <chrono>
 #include <condition_variable>
 #include <mutex>
 #include <set>
@@ -10,6 +11,9 @@ namespace {
 std::string MakeTaskToken(const std::string& path, uint64_t epoch) {
     return path + "#" + std::to_string(epoch);
 }
+
+const uint64_t kProgressByteStep = 64ULL * 1024ULL * 1024ULL;
+const std::chrono::milliseconds kProgressTimeStep(250);
 
 }  // namespace
 
@@ -74,6 +78,11 @@ std::vector<ScanEvent> ScanScheduler::DrainEvents() {
     return drained;
 }
 
+void ScanScheduler::PushEvent(const ScanEvent& event) {
+    std::lock_guard<std::mutex> lock(events_mutex_);
+    events_.push_back(event);
+}
+
 void ScanScheduler::WorkerLoop() {
     for (;;) {
         ScanTask task;
@@ -94,22 +103,38 @@ void ScanScheduler::WorkerLoop() {
             continue;
         }
 
-        {
-            std::lock_guard<std::mutex> lock(events_mutex_);
-            ScanEvent started;
-            started.kind = ScanEvent::Kind::Started;
-            started.path = task.path;
-            started.epoch = task.epoch;
-            events_.push_back(started);
-        }
+        ScanEvent started;
+        started.kind = ScanEvent::Kind::Started;
+        started.path = task.path;
+        started.epoch = task.epoch;
+        PushEvent(started);
+
+        uint64_t last_reported_bytes = 0;
+        std::chrono::steady_clock::time_point last_report_time = std::chrono::steady_clock::now();
 
         ScanEvent completed;
         completed.kind = ScanEvent::Kind::Completed;
         completed.path = task.path;
         completed.epoch = task.epoch;
-        completed.summary = ComputeDirectorySize(task.path, [this, &task]() {
-            return task.epoch != active_epoch_.load();
-        });
+        completed.summary = ComputeDirectorySize(
+            task.path,
+            [this, &task]() { return task.epoch != active_epoch_.load(); },
+            [this, &task, &last_reported_bytes, &last_report_time](uint64_t bytes) {
+                const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+                if (bytes > last_reported_bytes &&
+                    (bytes - last_reported_bytes >= kProgressByteStep || now - last_report_time >= kProgressTimeStep)) {
+                    last_reported_bytes = bytes;
+                    last_report_time = now;
+
+                    ScanEvent progress;
+                    progress.kind = ScanEvent::Kind::Progress;
+                    progress.path = task.path;
+                    progress.epoch = task.epoch;
+                    progress.summary.size_bytes = bytes;
+                    progress.summary.status = ScanStatus::Scanning;
+                    PushEvent(progress);
+                }
+            });
 
         if (task.epoch != active_epoch_.load()) {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -117,10 +142,7 @@ void ScanScheduler::WorkerLoop() {
             continue;
         }
 
-        {
-            std::lock_guard<std::mutex> lock(events_mutex_);
-            events_.push_back(completed);
-        }
+        PushEvent(completed);
 
         {
             std::lock_guard<std::mutex> lock(mutex_);

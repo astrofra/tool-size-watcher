@@ -56,6 +56,9 @@ std::vector<VolumeInfo> EnumerateVolumes();
 DirectoryListing ListDirectory(const std::string& path);
 ScanSummary ComputeDirectorySize(const std::string& path);
 ScanSummary ComputeDirectorySize(const std::string& path, const std::function<bool()>& should_cancel);
+ScanSummary ComputeDirectorySize(const std::string& path,
+                                const std::function<bool()>& should_cancel,
+                                const std::function<void(uint64_t)>& on_progress);
 
 std::string BaseName(const std::string& path);
 std::string ParentPath(const std::string& path);

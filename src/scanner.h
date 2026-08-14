@@ -18,6 +18,7 @@ namespace tsw {
 struct ScanEvent {
     enum class Kind {
         Started,
+        Progress,
         Completed
     };
 
@@ -44,6 +45,7 @@ private:
     };
 
     void WorkerLoop();
+    void PushEvent(const ScanEvent& event);
 
     std::deque<ScanTask> tasks_;
     std::vector<ScanEvent> events_;

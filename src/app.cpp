@@ -51,6 +51,18 @@ bool CompareEntriesBySize(const EntryInfo& left, const EntryInfo& right, bool de
     return CompareEntriesByName(left, right, false);
 }
 
+bool ShouldShowApproximateSize(const EntryInfo& entry) {
+    return entry.type == EntryType::Directory && entry.size_bytes > 0 && entry.status != ScanStatus::Ready;
+}
+
+std::string FormatEntrySize(const EntryInfo& entry) {
+    const std::string size_text = FormatBytes(entry.size_bytes);
+    if (ShouldShowApproximateSize(entry)) {
+        return "~" + size_text;
+    }
+    return size_text;
+}
+
 }  // namespace
 
 App::App()
@@ -71,6 +83,8 @@ void App::Pump() {
             queued_paths_.erase(event.path);
             scanning_paths_.insert(event.path);
             ApplyScanStatusToCache(event.path, ScanStatus::Scanning);
+        } else if (event.kind == ScanEvent::Kind::Progress) {
+            ApplyScanProgressToCache(event.path, event.summary.size_bytes);
         } else {
             queued_paths_.erase(event.path);
             scanning_paths_.erase(event.path);
@@ -345,14 +359,13 @@ void App::RenderBrowserView() {
                 ImGui::TextUnformatted(EntryTypeToString(entry.type).c_str());
 
                 ImGui::TableSetColumnIndex(2);
-                const bool show_placeholder = entry.type == EntryType::Directory &&
-                                              (entry.status == ScanStatus::Queued || entry.status == ScanStatus::Scanning ||
-                                               entry.status == ScanStatus::NotScanned) &&
+                const bool show_placeholder = entry.type == EntryType::Directory && entry.status == ScanStatus::Queued &&
                                               entry.size_bytes == 0;
                 if (show_placeholder) {
                     ImGui::TextUnformatted("--");
                 } else {
-                    ImGui::TextUnformatted(FormatBytes(entry.size_bytes).c_str());
+                    const std::string size_text = FormatEntrySize(entry);
+                    ImGui::TextUnformatted(size_text.c_str());
                 }
 
                 ImGui::TableSetColumnIndex(3);
@@ -485,6 +498,24 @@ void App::ApplyScanStatusToCache(const std::string& path, ScanStatus status) {
             }
         }
     }
+
+    current_directory_dirty_ = true;
+}
+
+void App::ApplyScanProgressToCache(const std::string& path, uint64_t size_bytes) {
+    for (std::unordered_map<std::string, DirectoryState>::iterator dir_it = directory_cache_.begin();
+         dir_it != directory_cache_.end(); ++dir_it) {
+        DirectoryState& state = dir_it->second;
+        for (std::size_t entry_index = 0; entry_index < state.entries.size(); ++entry_index) {
+            EntryInfo& entry = state.entries[entry_index];
+            if (entry.full_path == path) {
+                entry.size_bytes = size_bytes;
+                entry.status = ScanStatus::Scanning;
+            }
+        }
+    }
+
+    current_directory_dirty_ = true;
 }
 
 void App::ApplyScanSummaryToCache(const std::string& path, const ScanSummary& summary) {

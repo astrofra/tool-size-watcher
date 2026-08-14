@@ -126,9 +126,16 @@ bool ShouldCancel(const std::function<bool()>& should_cancel) {
     return should_cancel && should_cancel();
 }
 
+void ReportProgress(const std::function<void(uint64_t)>& on_progress, const ScanAccumulator& accumulator) {
+    if (on_progress) {
+        on_progress(accumulator.total_bytes);
+    }
+}
+
 void ScanDirectoryRecursive(const std::string& path,
                             dev_t root_device,
                             const std::function<bool()>& should_cancel,
+                            const std::function<void(uint64_t)>& on_progress,
                             ScanAccumulator* accumulator) {
     if (ShouldCancel(should_cancel)) {
         accumulator->cancelled = true;
@@ -165,10 +172,11 @@ void ScanDirectoryRecursive(const std::string& path,
 
         if (S_ISDIR(status.st_mode)) {
             if (status.st_dev == root_device) {
-                ScanDirectoryRecursive(full_path, root_device, should_cancel, accumulator);
+                ScanDirectoryRecursive(full_path, root_device, should_cancel, on_progress, accumulator);
             }
         } else {
             accumulator->total_bytes += ToAllocatedBytes(status);
+            ReportProgress(on_progress, *accumulator);
         }
 
         if (accumulator->cancelled) {
@@ -282,10 +290,16 @@ DirectoryListing ListDirectory(const std::string& path) {
 }
 
 ScanSummary ComputeDirectorySize(const std::string& path) {
-    return ComputeDirectorySize(path, std::function<bool()>());
+    return ComputeDirectorySize(path, std::function<bool()>(), std::function<void(uint64_t)>());
 }
 
 ScanSummary ComputeDirectorySize(const std::string& path, const std::function<bool()>& should_cancel) {
+    return ComputeDirectorySize(path, should_cancel, std::function<void(uint64_t)>());
+}
+
+ScanSummary ComputeDirectorySize(const std::string& path,
+                                const std::function<bool()>& should_cancel,
+                                const std::function<void(uint64_t)>& on_progress) {
     ScanAccumulator accumulator;
     struct stat root_status;
     if (lstat(path.c_str(), &root_status) != 0) {
@@ -300,7 +314,7 @@ ScanSummary ComputeDirectorySize(const std::string& path, const std::function<bo
         return summary;
     }
 
-    ScanDirectoryRecursive(path, root_status.st_dev, should_cancel, &accumulator);
+    ScanDirectoryRecursive(path, root_status.st_dev, should_cancel, on_progress, &accumulator);
 
     ScanSummary summary;
     summary.size_bytes = accumulator.total_bytes;

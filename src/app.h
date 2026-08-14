@@ -37,6 +37,7 @@ private:
     void SortCurrentDirectoryIfNeeded();
     void ApplySortSpecs();
     void ApplyScanStatusToCache(const std::string& path, ScanStatus status);
+    void ApplyScanProgressToCache(const std::string& path, uint64_t size_bytes);
     void ApplyScanSummaryToCache(const std::string& path, const ScanSummary& summary);
 
     void RemoveCurrentSubtreeFromCache();
