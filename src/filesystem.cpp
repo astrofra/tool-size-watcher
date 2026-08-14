@@ -83,6 +83,10 @@ bool IsUserVisibleMount(const struct statfs& entry) {
     return true;
 }
 
+bool IsNetworkMount(const struct statfs& entry) {
+    return (entry.f_flags & MNT_LOCAL) == 0;
+}
+
 uint64_t ToAllocatedBytes(const struct stat& status) {
     if (status.st_blocks > 0) {
         return static_cast<uint64_t>(status.st_blocks) * 512ULL;
@@ -185,6 +189,7 @@ std::vector<VolumeInfo> EnumerateVolumes() {
         volume.fs_type = entry.f_fstypename;
         volume.total_bytes = static_cast<uint64_t>(entry.f_blocks) * static_cast<uint64_t>(entry.f_bsize);
         volume.free_bytes = static_cast<uint64_t>(entry.f_bavail) * static_cast<uint64_t>(entry.f_bsize);
+        volume.is_network = IsNetworkMount(entry);
         volume.name = BaseName(mount_path);
         volumes.push_back(volume);
     }

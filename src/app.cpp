@@ -104,7 +104,7 @@ void App::RefreshVolumes() {
     if (!selected_volume_mount_.empty()) {
         bool found = false;
         for (std::size_t index = 0; index < volumes_.size(); ++index) {
-            if (volumes_[index].mount_path == selected_volume_mount_) {
+            if (volumes_[index].mount_path == selected_volume_mount_ && IsVolumeVisible(volumes_[index])) {
                 found = true;
                 break;
             }
@@ -193,19 +193,35 @@ void App::RenderVolumesView() {
         RefreshVolumes();
     }
 
-    if (!selected_volume_mount_.empty()) {
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Hide network volumes", &exclude_network_volumes_)) {
+        if (FindVisibleSelectedVolume() == NULL) {
+            selected_volume_mount_.clear();
+        }
+    }
+
+    const VolumeInfo* selected_volume = FindVisibleSelectedVolume();
+    if (selected_volume != NULL) {
         ImGui::SameLine();
         if (ImGui::Button("Browse Selected")) {
-            for (std::size_t index = 0; index < volumes_.size(); ++index) {
-                if (volumes_[index].mount_path == selected_volume_mount_) {
-                    OpenVolume(volumes_[index]);
-                    break;
-                }
-            }
+            OpenVolume(*selected_volume);
         }
     }
 
     ImGui::Spacing();
+    int hidden_network_volume_count = 0;
+    if (exclude_network_volumes_) {
+        for (std::size_t index = 0; index < volumes_.size(); ++index) {
+            if (volumes_[index].is_network) {
+                ++hidden_network_volume_count;
+            }
+        }
+        if (hidden_network_volume_count > 0) {
+            ImGui::Text("Network volumes hidden: %d", hidden_network_volume_count);
+            ImGui::Spacing();
+        }
+    }
+
     if (ImGui::BeginTable("volumes", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
                                          ImGuiTableFlags_Resizable | ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("Name");
@@ -217,6 +233,9 @@ void App::RenderVolumesView() {
 
         for (std::size_t index = 0; index < volumes_.size(); ++index) {
             const VolumeInfo& volume = volumes_[index];
+            if (!IsVolumeVisible(volume)) {
+                continue;
+            }
             const bool selected = volume.mount_path == selected_volume_mount_;
 
             ImGui::TableNextRow();
@@ -346,11 +365,9 @@ void App::HandleShortcuts() {
 
     if (view_mode_ == ViewMode::Volumes) {
         if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) {
-            for (std::size_t index = 0; index < volumes_.size(); ++index) {
-                if (volumes_[index].mount_path == selected_volume_mount_) {
-                    OpenVolume(volumes_[index]);
-                    break;
-                }
+            const VolumeInfo* selected_volume = FindVisibleSelectedVolume();
+            if (selected_volume != NULL) {
+                OpenVolume(*selected_volume);
             }
         }
         return;
@@ -499,6 +516,25 @@ void App::EnsureSelectionIsVisible() {
     selected_path_.clear();
 }
 
+bool App::IsVolumeVisible(const VolumeInfo& volume) const {
+    return !exclude_network_volumes_ || !volume.is_network;
+}
+
+const VolumeInfo* App::FindVisibleSelectedVolume() const {
+    if (selected_volume_mount_.empty()) {
+        return NULL;
+    }
+
+    for (std::size_t index = 0; index < volumes_.size(); ++index) {
+        const VolumeInfo& volume = volumes_[index];
+        if (volume.mount_path == selected_volume_mount_ && IsVolumeVisible(volume)) {
+            return &volume;
+        }
+    }
+
+    return NULL;
+}
+
 DirectoryState* App::CurrentDirectoryState() {
     const std::unordered_map<std::string, DirectoryState>::iterator it = directory_cache_.find(current_path_);
     if (it == directory_cache_.end()) {
@@ -530,4 +566,3 @@ const EntryInfo* App::FindSelectedEntry() const {
 }
 
 }  // namespace tsw
-

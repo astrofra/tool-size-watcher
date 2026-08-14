@@ -13,6 +13,7 @@ struct VolumeInfo {
     std::string fs_type;
     uint64_t total_bytes = 0;
     uint64_t free_bytes = 0;
+    bool is_network = false;
 };
 
 enum class EntryType {
@@ -61,4 +62,3 @@ std::string EntryTypeToString(EntryType type);
 std::string ScanStatusToString(ScanStatus status);
 
 }  // namespace tsw
-

@@ -95,6 +95,8 @@ Show a table of mounted storage volumes with:
 
 The list should hide pseudo-filesystems that are not real user storage targets, for example `devfs`, `autofs`, and similar system mounts.
 
+The device list must also provide a checkbox to exclude network volumes from the visible list. This checkbox is enabled by default.
+
 ### 6.3 Folder Browser
 
 Show:

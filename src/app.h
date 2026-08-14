@@ -39,6 +39,8 @@ private:
 
     void RemoveCurrentSubtreeFromCache();
     void EnsureSelectionIsVisible();
+    bool IsVolumeVisible(const VolumeInfo& volume) const;
+    const VolumeInfo* FindVisibleSelectedVolume() const;
 
     DirectoryState* CurrentDirectoryState();
     const DirectoryState* CurrentDirectoryState() const;
@@ -56,10 +58,10 @@ private:
     std::unordered_set<std::string> scanning_paths_;
     SortKey sort_key_ = SortKey::Name;
     bool sort_descending_ = false;
+    bool exclude_network_volumes_ = true;
     bool current_directory_dirty_ = true;
     uint64_t current_epoch_ = 1;
     ScanScheduler scanner_;
 };
 
 }  // namespace tsw
-
