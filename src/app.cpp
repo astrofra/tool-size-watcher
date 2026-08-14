@@ -339,6 +339,8 @@ void App::RenderBrowserView() {
         return;
     }
 
+    const bool has_selected_entry = FindSelectedEntry() != NULL;
+
     if (ImGui::Button("Volumes")) {
         AdvanceScanEpoch();
         view_mode_ = ViewMode::Volumes;
@@ -354,8 +356,14 @@ void App::RenderBrowserView() {
         RescanCurrentDirectory();
     }
     ImGui::SameLine();
+    if (!has_selected_entry) {
+        ImGui::BeginDisabled();
+    }
     if (ImGui::Button("Open in Finder")) {
         OpenSelectedInFinder();
+    }
+    if (!has_selected_entry) {
+        ImGui::EndDisabled();
     }
 
     ImGui::Spacing();

@@ -3,6 +3,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#include <pthread.h>
 #include <set>
 
 namespace tsw {
@@ -104,6 +105,9 @@ void ScanScheduler::PushEvent(const ScanEvent& event) {
 }
 
 void ScanScheduler::WorkerLoop() {
+    // Keep background scanning from competing too aggressively with Finder and UI responsiveness.
+    pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+
     for (;;) {
         ScanTask task;
         {
