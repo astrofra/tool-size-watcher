@@ -2,6 +2,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <pwd.h>
 #include <sys/mount.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -18,6 +19,16 @@ namespace {
 
 bool StartsWith(const std::string& value, const std::string& prefix) {
     return value.size() >= prefix.size() && value.compare(0, prefix.size(), prefix) == 0;
+}
+
+bool PathEqualsOrIsInside(const std::string& path, const std::string& root) {
+    if (root.empty()) {
+        return false;
+    }
+    if (path == root) {
+        return true;
+    }
+    return path.size() > root.size() && path.compare(0, root.size(), root) == 0 && path[root.size()] == '/';
 }
 
 std::string TrimTrailingSlashes(const std::string& path) {
@@ -45,6 +56,47 @@ std::string LowercaseAscii(const std::string& value) {
         lower[index] = static_cast<char>(std::tolower(static_cast<unsigned char>(lower[index])));
     }
     return lower;
+}
+
+std::string GetHomeDirectory() {
+    const char* home_env = getenv("HOME");
+    if (home_env != NULL && home_env[0] != '\0') {
+        return TrimTrailingSlashes(home_env);
+    }
+
+    const struct passwd* password_entry = getpwuid(getuid());
+    if (password_entry != NULL && password_entry->pw_dir != NULL && password_entry->pw_dir[0] != '\0') {
+        return TrimTrailingSlashes(password_entry->pw_dir);
+    }
+
+    return std::string();
+}
+
+std::vector<std::string> BuildProtectedRoots() {
+    const std::string home = GetHomeDirectory();
+    if (home.empty()) {
+        return std::vector<std::string>();
+    }
+
+    std::vector<std::string> roots;
+    roots.push_back(home + "/Desktop");
+    roots.push_back(home + "/Documents");
+    roots.push_back(home + "/Downloads");
+    roots.push_back(home + "/Pictures/Photos Library.photoslibrary");
+    roots.push_back(home + "/Library/Application Support/AddressBook");
+    roots.push_back(home + "/Library/Calendars");
+    roots.push_back(home + "/Library/Mail");
+    roots.push_back(home + "/Library/Messages");
+    roots.push_back(home + "/Library/Reminders");
+    roots.push_back(home + "/Library/Safari");
+    roots.push_back(home + "/Library/HomeKit");
+    roots.push_back(home + "/Library/IdentityServices");
+    return roots;
+}
+
+const std::vector<std::string>& ProtectedRoots() {
+    static const std::vector<std::string> roots = BuildProtectedRoots();
+    return roots;
 }
 
 bool IsHiddenSystemVolume(const std::string& mount_path) {
@@ -133,6 +185,8 @@ void ReportProgress(const std::function<void(uint64_t)>& on_progress, const Scan
 }
 
 void ScanDirectoryRecursive(const std::string& path,
+                            const std::string& scan_root,
+                            const ScanOptions& options,
                             dev_t root_device,
                             const std::function<bool()>& should_cancel,
                             const std::function<void(uint64_t)>& on_progress,
@@ -171,8 +225,10 @@ void ScanDirectoryRecursive(const std::string& path,
         }
 
         if (S_ISDIR(status.st_mode)) {
-            if (status.st_dev == root_device) {
-                ScanDirectoryRecursive(full_path, root_device, should_cancel, on_progress, accumulator);
+            if (status.st_dev == root_device &&
+                !ShouldSkipProtectedDirectory(scan_root, full_path, options)) {
+                ScanDirectoryRecursive(full_path, scan_root, options, root_device, should_cancel, on_progress,
+                                       accumulator);
             }
         } else {
             accumulator->total_bytes += ToAllocatedBytes(status);
@@ -290,14 +346,31 @@ DirectoryListing ListDirectory(const std::string& path) {
 }
 
 ScanSummary ComputeDirectorySize(const std::string& path) {
-    return ComputeDirectorySize(path, std::function<bool()>(), std::function<void(uint64_t)>());
+    return ComputeDirectorySize(path, ScanOptions(), std::function<bool()>(), std::function<void(uint64_t)>());
+}
+
+ScanSummary ComputeDirectorySize(const std::string& path, const ScanOptions& options) {
+    return ComputeDirectorySize(path, options, std::function<bool()>(), std::function<void(uint64_t)>());
 }
 
 ScanSummary ComputeDirectorySize(const std::string& path, const std::function<bool()>& should_cancel) {
-    return ComputeDirectorySize(path, should_cancel, std::function<void(uint64_t)>());
+    return ComputeDirectorySize(path, ScanOptions(), should_cancel, std::function<void(uint64_t)>());
 }
 
 ScanSummary ComputeDirectorySize(const std::string& path,
+                                 const ScanOptions& options,
+                                 const std::function<bool()>& should_cancel) {
+    return ComputeDirectorySize(path, options, should_cancel, std::function<void(uint64_t)>());
+}
+
+ScanSummary ComputeDirectorySize(const std::string& path,
+                                const std::function<bool()>& should_cancel,
+                                const std::function<void(uint64_t)>& on_progress) {
+    return ComputeDirectorySize(path, ScanOptions(), should_cancel, on_progress);
+}
+
+ScanSummary ComputeDirectorySize(const std::string& path,
+                                const ScanOptions& options,
                                 const std::function<bool()>& should_cancel,
                                 const std::function<void(uint64_t)>& on_progress) {
     ScanAccumulator accumulator;
@@ -314,7 +387,7 @@ ScanSummary ComputeDirectorySize(const std::string& path,
         return summary;
     }
 
-    ScanDirectoryRecursive(path, root_status.st_dev, should_cancel, on_progress, &accumulator);
+    ScanDirectoryRecursive(path, path, options, root_status.st_dev, should_cancel, on_progress, &accumulator);
 
     ScanSummary summary;
     summary.size_bytes = accumulator.total_bytes;
@@ -328,6 +401,29 @@ ScanSummary ComputeDirectorySize(const std::string& path,
         summary.status = ScanStatus::Ready;
     }
     return summary;
+}
+
+bool IsProtectedPath(const std::string& path) {
+    const std::string trimmed = TrimTrailingSlashes(path);
+    const std::vector<std::string>& roots = ProtectedRoots();
+    for (std::size_t index = 0; index < roots.size(); ++index) {
+        if (PathEqualsOrIsInside(trimmed, roots[index])) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ShouldSkipProtectedDirectory(const std::string& scan_root,
+                                  const std::string& candidate_path,
+                                  const ScanOptions& options) {
+    if (options.include_protected_paths) {
+        return false;
+    }
+    if (!IsProtectedPath(candidate_path)) {
+        return false;
+    }
+    return !IsProtectedPath(scan_root);
 }
 
 std::string BaseName(const std::string& path) {
@@ -398,6 +494,8 @@ std::string ScanStatusToString(ScanStatus status) {
         return "Scanning";
     case ScanStatus::Ready:
         return "Ready";
+    case ScanStatus::Excluded:
+        return "Excluded";
     case ScanStatus::Denied:
         return "Denied";
     case ScanStatus::Error:

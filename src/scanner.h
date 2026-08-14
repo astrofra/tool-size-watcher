@@ -36,6 +36,7 @@ public:
     void RequestStop();
     void SetActiveEpoch(uint64_t epoch);
     bool Enqueue(const std::string& path, uint64_t epoch);
+    bool Enqueue(const std::string& path, uint64_t epoch, const ScanOptions& options);
     std::vector<ScanEvent> DrainEvents();
     std::size_t WorkerCount() const;
 
@@ -44,6 +45,7 @@ private:
         std::string path;
         std::string token;
         uint64_t epoch = 0;
+        ScanOptions options;
     };
 
     void WorkerLoop();

@@ -67,6 +67,9 @@ std::string FormatEntrySize(const EntryInfo& entry) {
 
 App::App()
     : scanner_(2) {
+    const UserSettings settings = LoadUserSettings();
+    exclude_network_volumes_ = settings.exclude_network_volumes;
+    include_protected_folders_ = settings.include_protected_folders;
     scanner_.SetActiveEpoch(current_epoch_);
     RefreshVolumes();
 }
@@ -227,9 +230,15 @@ void App::RenderVolumesView() {
 
     ImGui::SameLine();
     if (ImGui::Checkbox("Hide network volumes", &exclude_network_volumes_)) {
+        PersistUserSettings();
         if (FindVisibleSelectedVolume() == NULL) {
             selected_volume_mount_.clear();
         }
+    }
+
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Scan protected folders", &include_protected_folders_)) {
+        PersistUserSettings();
     }
 
     const VolumeInfo* selected_volume = FindVisibleSelectedVolume();
@@ -369,6 +378,19 @@ void App::RenderBrowserView() {
     ImGui::Spacing();
     ImGui::Text("Path: %s", current_path_.c_str());
 
+    if (ImGui::Checkbox("Scan protected folders", &include_protected_folders_)) {
+        PersistUserSettings();
+        ReloadCurrentDirectoryForScanPolicyChange();
+        state = CurrentDirectoryState();
+        if (state == NULL) {
+            return;
+        }
+    }
+    if (!include_protected_folders_ && !IsProtectedPath(current_path_)) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("Protected folders are skipped until you open them or enable this option.");
+    }
+
     if (!state->error_message.empty() && state->entries.empty()) {
         ImGui::Spacing();
         ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.45f, 1.0f), "Cannot read directory: %s",
@@ -414,8 +436,9 @@ void App::RenderBrowserView() {
                 ImGui::TextUnformatted(EntryTypeToString(entry.type).c_str());
 
                 ImGui::TableSetColumnIndex(2);
-                const bool show_placeholder = entry.type == EntryType::Directory && entry.status == ScanStatus::Queued &&
-                                              entry.size_bytes == 0;
+                const bool show_placeholder =
+                    entry.type == EntryType::Directory && entry.size_bytes == 0 &&
+                    (entry.status == ScanStatus::Queued || entry.status == ScanStatus::Excluded);
                 if (show_placeholder) {
                     ImGui::TextUnformatted("--");
                 } else {
@@ -465,11 +488,41 @@ void App::AdvanceScanEpoch() {
     scanner_.SetActiveEpoch(current_epoch_);
 }
 
+void App::PersistUserSettings() const {
+    UserSettings settings;
+    settings.exclude_network_volumes = exclude_network_volumes_;
+    settings.include_protected_folders = include_protected_folders_;
+    SaveUserSettings(settings);
+}
+
+void App::ReloadCurrentDirectoryForScanPolicyChange() {
+    if (view_mode_ != ViewMode::Browser || current_path_.empty()) {
+        return;
+    }
+
+    AdvanceScanEpoch();
+    RemoveCurrentSubtreeFromCache();
+    OpenDirectory(current_path_, true);
+}
+
+ScanOptions App::BuildScanOptions() const {
+    ScanOptions options;
+    options.include_protected_paths = include_protected_folders_;
+    return options;
+}
+
 void App::PrepareDirectoryState(DirectoryState& state) {
+    const ScanOptions options = BuildScanOptions();
     for (std::size_t index = 0; index < state.entries.size(); ++index) {
         EntryInfo& entry = state.entries[index];
         if (entry.type != EntryType::Directory) {
             entry.status = ScanStatus::Ready;
+            continue;
+        }
+
+        if (!ShouldAutoScanPath(entry.full_path)) {
+            entry.size_bytes = 0;
+            entry.status = ScanStatus::Excluded;
             continue;
         }
 
@@ -490,7 +543,7 @@ void App::PrepareDirectoryState(DirectoryState& state) {
             continue;
         }
 
-        const bool queued = scanner_.Enqueue(entry.full_path, current_epoch_);
+        const bool queued = scanner_.Enqueue(entry.full_path, current_epoch_, options);
         if (queued) {
             queued_paths_.insert(entry.full_path);
             entry.status = ScanStatus::Queued;
@@ -645,6 +698,10 @@ const VolumeInfo* App::FindVisibleSelectedVolume() const {
     }
 
     return NULL;
+}
+
+bool App::ShouldAutoScanPath(const std::string& path) const {
+    return !ShouldSkipProtectedDirectory(current_path_, path, BuildScanOptions());
 }
 
 DirectoryState* App::CurrentDirectoryState() {

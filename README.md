@@ -2,6 +2,8 @@
 
 Desktop macOS utility to browse mounted storage devices, inspect folder contents, and compute recursive folder sizes in a Dear ImGui GUI.
 
+By default, automatic scans skip protected macOS locations such as `Desktop`, `Documents`, `Downloads`, and the Photos Library until you explicitly open them or enable protected-folder scanning. User preferences are persisted with standard macOS per-user preferences.
+
 ## Build
 
 Requirements:

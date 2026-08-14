@@ -23,5 +23,9 @@ struct DirectoryState {
     std::vector<EntryInfo> entries;
 };
 
-}  // namespace tsw
+struct UserSettings {
+    bool exclude_network_volumes = true;
+    bool include_protected_folders = false;
+};
 
+}  // namespace tsw

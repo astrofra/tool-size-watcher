@@ -29,6 +29,7 @@ enum class ScanStatus {
     Queued,
     Scanning,
     Ready,
+    Excluded,
     Denied,
     Error
 };
@@ -52,13 +53,30 @@ struct ScanSummary {
     ScanStatus status = ScanStatus::NotScanned;
 };
 
+struct ScanOptions {
+    bool include_protected_paths = false;
+};
+
 std::vector<VolumeInfo> EnumerateVolumes();
 DirectoryListing ListDirectory(const std::string& path);
 ScanSummary ComputeDirectorySize(const std::string& path);
+ScanSummary ComputeDirectorySize(const std::string& path, const ScanOptions& options);
 ScanSummary ComputeDirectorySize(const std::string& path, const std::function<bool()>& should_cancel);
+ScanSummary ComputeDirectorySize(const std::string& path,
+                                const ScanOptions& options,
+                                const std::function<bool()>& should_cancel);
 ScanSummary ComputeDirectorySize(const std::string& path,
                                 const std::function<bool()>& should_cancel,
                                 const std::function<void(uint64_t)>& on_progress);
+ScanSummary ComputeDirectorySize(const std::string& path,
+                                const ScanOptions& options,
+                                const std::function<bool()>& should_cancel,
+                                const std::function<void(uint64_t)>& on_progress);
+
+bool IsProtectedPath(const std::string& path);
+bool ShouldSkipProtectedDirectory(const std::string& scan_root,
+                                  const std::string& candidate_path,
+                                  const ScanOptions& options);
 
 std::string BaseName(const std::string& path);
 std::string ParentPath(const std::string& path);

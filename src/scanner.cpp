@@ -66,6 +66,10 @@ void ScanScheduler::SetActiveEpoch(uint64_t epoch) {
 }
 
 bool ScanScheduler::Enqueue(const std::string& path, uint64_t epoch) {
+    return Enqueue(path, epoch, ScanOptions());
+}
+
+bool ScanScheduler::Enqueue(const std::string& path, uint64_t epoch, const ScanOptions& options) {
     const std::string token = MakeTaskToken(path, epoch);
 
     {
@@ -81,6 +85,7 @@ bool ScanScheduler::Enqueue(const std::string& path, uint64_t epoch) {
         task.path = path;
         task.token = token;
         task.epoch = epoch;
+        task.options = options;
         tasks_.push_back(task);
     }
 
@@ -142,6 +147,7 @@ void ScanScheduler::WorkerLoop() {
         completed.epoch = task.epoch;
         completed.summary = ComputeDirectorySize(
             task.path,
+            task.options,
             [this, &task]() { return stop_.load() || task.epoch != active_epoch_.load(); },
             [this, &task, &last_reported_bytes, &last_report_time](uint64_t bytes) {
                 if (stop_.load()) {

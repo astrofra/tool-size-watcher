@@ -24,7 +24,15 @@
     <string>0.1.0</string>
     <key>LSMinimumSystemVersion</key>
     <string>11.0</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Tool Size Watcher can scan your Desktop folder when you explicitly enable protected-folder scanning or open that folder.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Tool Size Watcher can scan your Documents folder when you explicitly enable protected-folder scanning or open that folder.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Tool Size Watcher can scan your Downloads folder when you explicitly enable protected-folder scanning or open that folder.</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>Tool Size Watcher can inspect your Photos Library when you explicitly enable protected-folder scanning or open it.</string>
 </dict>
 </plist>

@@ -36,6 +36,9 @@ private:
     void HandleShortcuts();
 
     void AdvanceScanEpoch();
+    void PersistUserSettings() const;
+    void ReloadCurrentDirectoryForScanPolicyChange();
+    ScanOptions BuildScanOptions() const;
     void PrepareDirectoryState(DirectoryState& state);
     void SortCurrentDirectoryIfNeeded();
     void ApplySortSpecs();
@@ -47,6 +50,7 @@ private:
     void EnsureSelectionIsVisible();
     bool IsVolumeVisible(const VolumeInfo& volume) const;
     const VolumeInfo* FindVisibleSelectedVolume() const;
+    bool ShouldAutoScanPath(const std::string& path) const;
 
     DirectoryState* CurrentDirectoryState();
     const DirectoryState* CurrentDirectoryState() const;
@@ -65,6 +69,7 @@ private:
     SortKey sort_key_ = SortKey::Name;
     bool sort_descending_ = false;
     bool exclude_network_volumes_ = true;
+    bool include_protected_folders_ = false;
     bool current_directory_dirty_ = true;
     uint64_t current_epoch_ = 1;
     ScanScheduler scanner_;
