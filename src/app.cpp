@@ -55,6 +55,7 @@ bool CompareEntriesBySize(const EntryInfo& left, const EntryInfo& right, bool de
 
 App::App()
     : scanner_(2) {
+    scanner_.SetActiveEpoch(current_epoch_);
     RefreshVolumes();
 }
 
@@ -69,6 +70,7 @@ void App::Pump() {
         if (event.kind == ScanEvent::Kind::Started) {
             queued_paths_.erase(event.path);
             scanning_paths_.insert(event.path);
+            ApplyScanStatusToCache(event.path, ScanStatus::Scanning);
         } else {
             queued_paths_.erase(event.path);
             scanning_paths_.erase(event.path);
@@ -122,6 +124,10 @@ void App::OpenVolume(const VolumeInfo& volume) {
 }
 
 void App::OpenDirectory(const std::string& path, bool force_reload) {
+    if (path != current_path_) {
+        AdvanceScanEpoch();
+    }
+
     current_path_ = path;
     view_mode_ = ViewMode::Browser;
 
@@ -144,6 +150,7 @@ void App::NavigateUp() {
     }
 
     if (current_path_ == current_volume_root_) {
+        AdvanceScanEpoch();
         view_mode_ = ViewMode::Volumes;
         current_path_.clear();
         selected_path_.clear();
@@ -158,9 +165,7 @@ void App::RescanCurrentDirectory() {
         return;
     }
 
-    ++current_epoch_;
-    queued_paths_.clear();
-    scanning_paths_.clear();
+    AdvanceScanEpoch();
     RemoveCurrentSubtreeFromCache();
     selected_path_.clear();
     OpenDirectory(current_path_, true);
@@ -273,6 +278,7 @@ void App::RenderBrowserView() {
     }
 
     if (ImGui::Button("Volumes")) {
+        AdvanceScanEpoch();
         view_mode_ = ViewMode::Volumes;
         current_path_.clear();
         selected_path_.clear();
@@ -384,6 +390,13 @@ void App::HandleShortcuts() {
     }
 }
 
+void App::AdvanceScanEpoch() {
+    ++current_epoch_;
+    queued_paths_.clear();
+    scanning_paths_.clear();
+    scanner_.SetActiveEpoch(current_epoch_);
+}
+
 void App::PrepareDirectoryState(DirectoryState& state) {
     for (std::size_t index = 0; index < state.entries.size(); ++index) {
         EntryInfo& entry = state.entries[index];
@@ -459,6 +472,19 @@ void App::ApplySortSpecs() {
     sort_descending_ = spec.SortDirection == ImGuiSortDirection_Descending;
     current_directory_dirty_ = true;
     sort_specs->SpecsDirty = false;
+}
+
+void App::ApplyScanStatusToCache(const std::string& path, ScanStatus status) {
+    for (std::unordered_map<std::string, DirectoryState>::iterator dir_it = directory_cache_.begin();
+         dir_it != directory_cache_.end(); ++dir_it) {
+        DirectoryState& state = dir_it->second;
+        for (std::size_t entry_index = 0; entry_index < state.entries.size(); ++entry_index) {
+            EntryInfo& entry = state.entries[entry_index];
+            if (entry.full_path == path) {
+                entry.status = status;
+            }
+        }
+    }
 }
 
 void App::ApplyScanSummaryToCache(const std::string& path, const ScanSummary& summary) {

@@ -32,9 +32,11 @@ private:
     void RenderBrowserView();
     void HandleShortcuts();
 
+    void AdvanceScanEpoch();
     void PrepareDirectoryState(DirectoryState& state);
     void SortCurrentDirectoryIfNeeded();
     void ApplySortSpecs();
+    void ApplyScanStatusToCache(const std::string& path, ScanStatus status);
     void ApplyScanSummaryToCache(const std::string& path, const ScanSummary& summary);
 
     void RemoveCurrentSubtreeFromCache();

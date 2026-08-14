@@ -2,6 +2,7 @@
 
 #include <stdint.h>
 
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,7 @@ struct ScanSummary {
 std::vector<VolumeInfo> EnumerateVolumes();
 DirectoryListing ListDirectory(const std::string& path);
 ScanSummary ComputeDirectorySize(const std::string& path);
+ScanSummary ComputeDirectorySize(const std::string& path, const std::function<bool()>& should_cancel);
 
 std::string BaseName(const std::string& path);
 std::string ParentPath(const std::string& path);

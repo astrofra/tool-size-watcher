@@ -111,6 +111,7 @@ struct ScanAccumulator {
     uint64_t total_bytes = 0;
     bool denied = false;
     bool error = false;
+    bool cancelled = false;
 };
 
 void MarkTraversalFailure(ScanAccumulator* accumulator, int error_code) {
@@ -121,7 +122,19 @@ void MarkTraversalFailure(ScanAccumulator* accumulator, int error_code) {
     accumulator->error = true;
 }
 
-void ScanDirectoryRecursive(const std::string& path, ScanAccumulator* accumulator) {
+bool ShouldCancel(const std::function<bool()>& should_cancel) {
+    return should_cancel && should_cancel();
+}
+
+void ScanDirectoryRecursive(const std::string& path,
+                            dev_t root_device,
+                            const std::function<bool()>& should_cancel,
+                            ScanAccumulator* accumulator) {
+    if (ShouldCancel(should_cancel)) {
+        accumulator->cancelled = true;
+        return;
+    }
+
     DIR* directory = opendir(path.c_str());
     if (directory == NULL) {
         MarkTraversalFailure(accumulator, errno);
@@ -131,6 +144,11 @@ void ScanDirectoryRecursive(const std::string& path, ScanAccumulator* accumulato
     errno = 0;
     struct dirent* entry = readdir(directory);
     while (entry != NULL) {
+        if (ShouldCancel(should_cancel)) {
+            accumulator->cancelled = true;
+            break;
+        }
+
         const std::string name(entry->d_name);
         if (name == "." || name == "..") {
             entry = readdir(directory);
@@ -146,15 +164,21 @@ void ScanDirectoryRecursive(const std::string& path, ScanAccumulator* accumulato
         }
 
         if (S_ISDIR(status.st_mode)) {
-            ScanDirectoryRecursive(full_path, accumulator);
+            if (status.st_dev == root_device) {
+                ScanDirectoryRecursive(full_path, root_device, should_cancel, accumulator);
+            }
         } else {
             accumulator->total_bytes += ToAllocatedBytes(status);
+        }
+
+        if (accumulator->cancelled) {
+            break;
         }
 
         entry = readdir(directory);
     }
 
-    if (errno != 0) {
+    if (!accumulator->cancelled && errno != 0) {
         MarkTraversalFailure(accumulator, errno);
     }
 
@@ -258,12 +282,31 @@ DirectoryListing ListDirectory(const std::string& path) {
 }
 
 ScanSummary ComputeDirectorySize(const std::string& path) {
+    return ComputeDirectorySize(path, std::function<bool()>());
+}
+
+ScanSummary ComputeDirectorySize(const std::string& path, const std::function<bool()>& should_cancel) {
     ScanAccumulator accumulator;
-    ScanDirectoryRecursive(path, &accumulator);
+    struct stat root_status;
+    if (lstat(path.c_str(), &root_status) != 0) {
+        ScanSummary summary;
+        summary.status = (errno == EACCES || errno == EPERM) ? ScanStatus::Denied : ScanStatus::Error;
+        return summary;
+    }
+
+    if (!S_ISDIR(root_status.st_mode)) {
+        ScanSummary summary;
+        summary.status = ScanStatus::Error;
+        return summary;
+    }
+
+    ScanDirectoryRecursive(path, root_status.st_dev, should_cancel, &accumulator);
 
     ScanSummary summary;
     summary.size_bytes = accumulator.total_bytes;
-    if (accumulator.denied) {
+    if (accumulator.cancelled) {
+        summary.status = ScanStatus::NotScanned;
+    } else if (accumulator.denied) {
         summary.status = ScanStatus::Denied;
     } else if (accumulator.error) {
         summary.status = ScanStatus::Error;

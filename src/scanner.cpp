@@ -18,6 +18,7 @@ ScanScheduler::ScanScheduler(std::size_t worker_count) {
         worker_count = 1;
     }
 
+    active_epoch_.store(0);
     workers_.reserve(worker_count);
     for (std::size_t index = 0; index < worker_count; ++index) {
         workers_.push_back(std::thread(&ScanScheduler::WorkerLoop, this));
@@ -34,6 +35,16 @@ ScanScheduler::~ScanScheduler() {
     for (std::size_t index = 0; index < workers_.size(); ++index) {
         workers_[index].join();
     }
+}
+
+void ScanScheduler::SetActiveEpoch(uint64_t epoch) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        active_epoch_.store(epoch);
+        tasks_.clear();
+        pending_tokens_.clear();
+    }
+    condition_.notify_all();
 }
 
 bool ScanScheduler::Enqueue(const std::string& path, uint64_t epoch) {
@@ -77,6 +88,12 @@ void ScanScheduler::WorkerLoop() {
             tasks_.pop_front();
         }
 
+        if (task.epoch != active_epoch_.load()) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            pending_tokens_.erase(task.token);
+            continue;
+        }
+
         {
             std::lock_guard<std::mutex> lock(events_mutex_);
             ScanEvent started;
@@ -90,7 +107,15 @@ void ScanScheduler::WorkerLoop() {
         completed.kind = ScanEvent::Kind::Completed;
         completed.path = task.path;
         completed.epoch = task.epoch;
-        completed.summary = ComputeDirectorySize(task.path);
+        completed.summary = ComputeDirectorySize(task.path, [this, &task]() {
+            return task.epoch != active_epoch_.load();
+        });
+
+        if (task.epoch != active_epoch_.load()) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            pending_tokens_.erase(task.token);
+            continue;
+        }
 
         {
             std::lock_guard<std::mutex> lock(events_mutex_);
@@ -105,4 +130,3 @@ void ScanScheduler::WorkerLoop() {
 }
 
 }  // namespace tsw
-
