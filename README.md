@@ -16,6 +16,14 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --config Release
 ```
 
+Or, for the usual local workflow:
+
+```bash
+./rebuild.sh
+```
+
+This rebuilds the executable and regenerates `dist/ToolSizeWatcher.app`.
+
 ## Package as `.app`
 
 ```bash

@@ -8,6 +8,8 @@
     <string>Tool Size Watcher</string>
     <key>CFBundleExecutable</key>
     <string>ToolSizeWatcher</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleIdentifier</key>
     <string>com.fra.toolsizewatcher</string>
     <key>CFBundleInfoDictionaryVersion</key>
@@ -26,4 +28,3 @@
     <true/>
 </dict>
 </plist>
-
