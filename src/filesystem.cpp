@@ -85,6 +85,8 @@ std::vector<std::string> BuildProtectedRoots() {
     roots.push_back(home + "/Pictures/Photos Library.photoslibrary");
     roots.push_back(home + "/Library/Application Support/AddressBook");
     roots.push_back(home + "/Library/Calendars");
+    roots.push_back(home + "/Library/Group Containers/group.com.apple.calendar");
+    roots.push_back(home + "/Library/Group Containers/group.com.apple.reminders");
     roots.push_back(home + "/Library/Mail");
     roots.push_back(home + "/Library/Messages");
     roots.push_back(home + "/Library/Reminders");
