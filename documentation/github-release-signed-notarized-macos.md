@@ -169,6 +169,15 @@ Important:
 - it does **not** sign it
 - signing and notarization happen after packaging
 
+Optional automation:
+
+```bash
+./scripts/sign_macos_app.sh \
+  --identity "Developer ID Application: Your Name or Company (TEAMID1234)"
+```
+
+That helper rebuilds the app by default, signs it with Hardened Runtime enabled, and runs the verification commands for you.
+
 ### 2. Set Release Variables
 
 Example:
@@ -214,6 +223,14 @@ Things to look for:
 
 If you later add embedded frameworks, helper apps, or plug-ins, sign those nested components first, then sign the outer `.app`.
 
+Equivalent helper script:
+
+```bash
+./scripts/sign_macos_app.sh \
+  --skip-build \
+  --identity "$IDENTITY"
+```
+
 ### 4. Create the Notarization Upload Archive
 
 Use `ditto`, not Finder compression, so the app bundle metadata is preserved correctly:
@@ -226,6 +243,15 @@ ditto -c -k --sequesterRsrc --keepParent "$APP" "$UPLOAD_ZIP"
 This ZIP is for Apple notarization submission.
 
 Do **not** assume it is the final release asset yet.
+
+Equivalent helper script for steps 4 through 8:
+
+```bash
+./scripts/notarize_macos_release.sh \
+  --notary-profile "$NOTARY_PROFILE"
+```
+
+By default, that helper reads the version from the app bundle, infers `arm64` versus `universal` from the executable, submits the notarization, staples the ticket, runs the local Gatekeeper checks, and creates the final ZIP plus `.sha256` file.
 
 ### 5. Submit to Apple Notarization
 
