@@ -3,7 +3,14 @@
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
+#if defined(__APPLE__)
 #include <pthread.h>
+#elif defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 #include <set>
 
 namespace tsw {
@@ -110,8 +117,12 @@ void ScanScheduler::PushEvent(const ScanEvent& event) {
 }
 
 void ScanScheduler::WorkerLoop() {
-    // Keep background scanning from competing too aggressively with Finder and UI responsiveness.
+    // Keep background scanning from competing too aggressively with the file manager and UI responsiveness.
+#if defined(__APPLE__)
     pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+#elif defined(_WIN32)
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+#endif
 
     for (;;) {
         ScanTask task;

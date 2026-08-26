@@ -1,4 +1,4 @@
-#include "macos_platform.h"
+#include "platform.h"
 
 #import <AppKit/AppKit.h>
 #import <Foundation/Foundation.h>
@@ -21,7 +21,11 @@ NSDictionary* ReadSettingsDomain() {
 
 }  // namespace
 
-bool OpenPathInFinder(const std::string& path, bool is_directory) {
+const char* FileManagerDisplayName() {
+    return "Finder";
+}
+
+bool OpenPathInFileManager(const std::string& path, bool is_directory) {
     @autoreleasepool {
         NSString* ns_path = [NSString stringWithUTF8String:path.c_str()];
         if (ns_path == nil) {

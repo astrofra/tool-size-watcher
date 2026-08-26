@@ -1,6 +1,6 @@
 #include "app.h"
 
-#include "macos_platform.h"
+#include "platform.h"
 
 #include <imgui.h>
 
@@ -23,16 +23,47 @@ std::string LowercaseAscii(const std::string& value) {
 }
 
 bool PathIsInsideSubtree(const std::string& path, const std::string& root) {
+#if defined(_WIN32)
+    const bool case_insensitive = true;
+    const char separator = '\\';
+#else
+    const bool case_insensitive = false;
+    const char separator = '/';
+#endif
+
+    const auto characters_equal = [case_insensitive](char left, char right) {
+        if (case_insensitive) {
+            left = static_cast<char>(std::tolower(static_cast<unsigned char>(left)));
+            right = static_cast<char>(std::tolower(static_cast<unsigned char>(right)));
+        }
+#if defined(_WIN32)
+        return left == right || (left == '/' && right == '\\') || (left == '\\' && right == '/');
+#else
+        return left == right;
+#endif
+    };
+
     if (root == "/") {
         return !path.empty() && path[0] == '/';
     }
-    if (path == root) {
+    if (path.size() <= root.size()) {
+        if (path.size() != root.size()) {
+            return false;
+        }
+        for (std::size_t index = 0; index < root.size(); ++index) {
+            if (!characters_equal(path[index], root[index])) {
+                return false;
+            }
+        }
         return true;
     }
-    if (path.size() <= root.size()) {
-        return false;
+    for (std::size_t index = 0; index < root.size(); ++index) {
+        if (!characters_equal(path[index], root[index])) {
+            return false;
+        }
     }
-    return path.compare(0, root.size(), root) == 0 && path[root.size()] == '/';
+    const bool root_has_separator = !root.empty() && characters_equal(root[root.size() - 1], separator);
+    return root_has_separator || characters_equal(path[root.size()], separator);
 }
 
 bool CompareEntriesByName(const EntryInfo& left, const EntryInfo& right, bool descending) {
@@ -201,14 +232,14 @@ void App::RescanCurrentDirectory() {
     OpenDirectory(current_path_, true);
 }
 
-void App::OpenSelectedInFinder() const {
+void App::OpenSelectedInFileManager() const {
     const EntryInfo* entry = FindSelectedEntry();
     if (entry == NULL) {
         return;
     }
 
     const bool is_directory = entry->type == EntryType::Directory;
-    OpenPathInFinder(entry->full_path, is_directory);
+    OpenPathInFileManager(entry->full_path, is_directory);
 }
 
 void App::EnterSelectedDirectory() {
@@ -368,8 +399,9 @@ void App::RenderBrowserView() {
     if (!has_selected_entry) {
         ImGui::BeginDisabled();
     }
-    if (ImGui::Button("Open in Finder")) {
-        OpenSelectedInFinder();
+    const std::string open_button_label = std::string("Open in ") + FileManagerDisplayName();
+    if (ImGui::Button(open_button_label.c_str())) {
+        OpenSelectedInFileManager();
     }
     if (!has_selected_entry) {
         ImGui::EndDisabled();
@@ -457,7 +489,7 @@ void App::RenderBrowserView() {
 
 void App::HandleShortcuts() {
     if (ImGui::IsKeyPressed(ImGuiKey_O, false)) {
-        OpenSelectedInFinder();
+        OpenSelectedInFileManager();
     }
 
     if (view_mode_ == ViewMode::Volumes) {

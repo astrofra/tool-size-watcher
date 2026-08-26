@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BUILD_DIR="${ROOT_DIR}/build"
+BUILD_DIR="${ROOT_DIR}/build/macos"
 BUILD_TYPE="${BUILD_TYPE:-Release}"
 PACKAGE_APP=1
 

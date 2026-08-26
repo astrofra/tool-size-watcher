@@ -1,5 +1,9 @@
 # macOS Folder Size Browser - Product and Technical Specification
 
+> This is the original macOS MVP specification. Windows is now a supported peer target; the
+> [Windows port addendum](windows-port-spec.md) overrides the historical macOS-only scope while keeping the same
+> product behavior.
+
 ## 1. Purpose
 
 Build a desktop GUI tool for macOS that:

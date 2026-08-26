@@ -1,6 +1,6 @@
 # Vendored Third-Party Dependencies
 
-This repository vendors the third-party sources required to build the macOS app locally without Homebrew and without configure-time downloads.
+This repository vendors the third-party sources required to build the Windows and macOS apps without a package manager or configure-time downloads.
 
 ## Dear ImGui
 
@@ -18,10 +18,9 @@ This repository vendors the third-party sources required to build the macOS app 
 
 ## Host Requirements
 
-The only expected external build prerequisites on macOS are:
+The expected external build prerequisites are:
 
-- Apple Clang via Xcode or Xcode Command Line Tools
-- `cmake`
+- macOS: Apple Clang via Xcode or Xcode Command Line Tools, plus `cmake`
+- Windows: Visual Studio 2022 Build Tools with the Desktop C++ workload, plus `cmake`
 
-Everything else required by the app is expected to come from the repository itself or from Apple system frameworks already present on macOS.
-
+Everything else required by the app comes from the repository or from system frameworks and libraries already present on the target OS.

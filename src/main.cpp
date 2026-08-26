@@ -2,6 +2,14 @@
 
 #include <stdio.h>
 
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <objbase.h>
+#include <windows.h>
+#endif
+
 #include <GLFW/glfw3.h>
 #include <imgui.h>
 #include <backends/imgui_impl_glfw.h>
@@ -36,18 +44,24 @@ void SetupImGuiStyle() {
 
 }  // namespace
 
-int main() {
+int RunApplication() {
     glfwSetErrorCallback(GlfwErrorCallback);
     if (!glfwInit()) {
         return 1;
     }
 
+#if defined(__APPLE__)
     const char* glsl_version = "#version 150";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_TRUE);
+#else
+    const char* glsl_version = "#version 130";
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+#endif
 
     GLFWwindow* window = glfwCreateWindow(1280, 800, "Tool Size Watcher", NULL, NULL);
     if (window == NULL) {
@@ -100,3 +114,18 @@ int main() {
     glfwTerminate();
     return 0;
 }
+
+#if defined(_WIN32)
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+    const HRESULT com_result = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED);
+    const int result = RunApplication();
+    if (SUCCEEDED(com_result)) {
+        CoUninitialize();
+    }
+    return result;
+}
+#else
+int main() {
+    return RunApplication();
+}
+#endif

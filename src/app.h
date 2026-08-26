@@ -27,7 +27,7 @@ private:
     void OpenDirectory(const std::string& path, bool force_reload);
     void NavigateUp();
     void RescanCurrentDirectory();
-    void OpenSelectedInFinder() const;
+    void OpenSelectedInFileManager() const;
     void EnterSelectedDirectory();
 
     void RenderVolumesView();

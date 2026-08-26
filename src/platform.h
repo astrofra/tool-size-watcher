@@ -6,7 +6,8 @@
 
 namespace tsw {
 
-bool OpenPathInFinder(const std::string& path, bool is_directory);
+const char* FileManagerDisplayName();
+bool OpenPathInFileManager(const std::string& path, bool is_directory);
 UserSettings LoadUserSettings();
 void SaveUserSettings(const UserSettings& settings);
 
