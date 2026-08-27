@@ -1,4 +1,4 @@
-# Tool Size Watcher
+# Size Watcher Tool
 
 Tool Size Watcher is a desktop utility for Windows and macOS that helps you inspect mounted drives, browse folders, and see recursive folder sizes without blocking the UI.
 
